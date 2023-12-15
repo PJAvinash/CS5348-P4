@@ -68,6 +68,7 @@ int check_indirect_addr_ranges(const char *baseddr, const struct dinode *dip, ui
 }
 void check_inode_addr_ranges(const char *baseaddr, const struct dinode *dip, uint nblocks)
 {
+    if(!dip->type){return;}
     if (!check_direct_addr_ranges(dip, nblocks))
     {
         fprintf(stderr, "ERROR: bad direct address in inode.\n");
@@ -198,9 +199,9 @@ int check_duplicate_direct_addr(const struct dinode *dip, int nblocks)
     {
         isSeen[i] = 0;
     }
-    for (i = 0; i < NDIRECT; i++)
+    for (i = 0; i < NDIRECT+1; i++)
     {
-        if (dip->addrs[i])
+        if (dip->addrs[i] && dip->addrs[i] < nblocks)
         {
             isSeen[dip->addrs[i]]++;
         }
@@ -229,7 +230,7 @@ int check_duplicate_indirect_addr(const char *baseaddr, const struct dinode *dip
         int BLOCK_NUM_BYTES = 4;
         for (i = 0; i < BLOCK_SIZE / BLOCK_NUM_BYTES; i++)
         {
-            if (indirect_block[i])
+            if (indirect_block[i] && indirect_block[i]<nblocks)
             {
                 isSeen[indirect_block[i]]++;
             }
