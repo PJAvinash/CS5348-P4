@@ -25,7 +25,13 @@ test_cases= {
     'indirfree': 'ERROR: address used by inode but marked free in bitmap.',
     'mismatch': 'ERROR: directory not properly formatted.',
     'mrkfree': 'ERROR: address used by inode but marked free in bitmap.',
-    'mrkused': 'ERROR: bitmap marks block in use but it is not in use.'
+    'mrkused': 'ERROR: bitmap marks block in use but it is not in use.',
+    'fs.img':'',
+    'fs1.img':'',
+    'fs2.img':'',
+    'fs3.img':'',
+    'fs4.img':'',
+    'fs5.img':''
 }
 
 # Specify the path to your C program

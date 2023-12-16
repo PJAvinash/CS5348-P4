@@ -83,6 +83,18 @@ void check_inode_addr_ranges(const char *baseaddr, const struct dinode *dip, uin
     }
 }
 
+/**
+ * @brief Checks the consistency of inode data block allocation with the data bitmap.
+ *
+ * This function verifies that each data block referenced by the given inode is marked as
+ * used in the data bitmap.
+ *
+ * @param baseaddr Pointer to the base address of the file system image.
+ * @param dip      Pointer to the inode structure to be checked.
+ * @param databitmap Pointer to the data bitmap representing block allocation.
+ * @return 1 if the inode data block allocation is consistent with the data bitmap, 0 otherwise.
+ */
+
 int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *dip, int *databitmap)
 {
     if (dip->type == 0)
@@ -121,6 +133,16 @@ int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *di
     return 1;
 }
 
+/**
+ * @brief Check if the data blocks in the file system are correctly marked as in use.
+ *
+ * This function examines the data blocks in the file system and compares them
+ * with the provided data bitmap to ensure correct marking.
+ *
+ * @param addr The base address of the file system image.
+ * @param databitmap An array representing the data bitmap.
+ * @return 1 if data blocks are correctly marked, 0 otherwise.
+ */
 int check_if_datablock_falsely_marked_in_use(const char *addr, int *databitmap)
 {
     struct superblock *sb = (struct superblock *)translate_address(addr, 1);
@@ -169,6 +191,13 @@ int check_if_datablock_falsely_marked_in_use(const char *addr, int *databitmap)
     return 1;
 }
 
+/**
+ * @brief Loads the data bitmap from the file system image into an integer array.
+ *
+ * @param baseaddr Pointer to the base address of the file system image.
+ * @param size     Size of the data bitmap array.
+ * @param bitmap   Pointer to the integer array representing the data bitmap.
+ */
 void loadbitmap(const char *baseaddr, uint size, int bitmap[size])
 {
     struct superblock *sb = (struct superblock *)translate_address(baseaddr, 1);
@@ -270,6 +299,17 @@ int check_duplicate_addr(uint nblocks, uint refcounts[nblocks])
     return 1;
 }
 
+/**
+ * @brief Get reference counts for inodes in a direct address block.
+ *
+ * This function iterates through directory entries in a direct address block
+ * and increments the reference counts for corresponding inodes.
+ *
+ * @param baseaddr The base address of the file system image.
+ * @param blockno The block number of the direct address block.
+ * @param ninodes The total number of inodes in the file system.
+ * @param refcounts An array to store reference counts for each inode.
+ */
 void get_direct_addr_inode_ref(const char *baseaddr, int blockno, int ninodes, uint refcounts[ninodes])
 {
     if (blockno)
@@ -376,6 +416,11 @@ void printcounts(uint arr[], int size)
     }
 }
 
+/**
+ * @brief Validates inode and directory references in the xv6 file system image.
+ * @param baseaddr Base address of the xv6 file system image.
+ */
+
 void validate_inode_directory_references(const char *baseaddr)
 {
     const struct dinode *dip = (struct dinode *)(baseaddr + IBLOCK((uint)0) * BLOCK_SIZE);
@@ -428,6 +473,11 @@ void validate_inode_directory_references(const char *baseaddr)
         }
     }
 }
+
+/**
+ * @brief Validates the consistency of an xv6 file system image.
+ * @param fs_img_path Path to the xv6 file system image.
+ */
 
 void validate_fs_img(char *fs_img_path)
 {
@@ -516,7 +566,7 @@ void validate_fs_img(char *fs_img_path)
             exit(1);
         }
     }
-    // chech8
+    // check8
     for (i = 1; i < sb->ninodes; i++)
     {
         get_indirect_addr_refcounts(addr, &dip[i], sb->nblocks, address_ref_counts);
