@@ -172,9 +172,8 @@ int check_if_datablock_falsely_marked_in_use(const char *addr, int *databitmap)
 void loadbitmap(const char *baseaddr, uint size, int bitmap[size])
 {
     struct superblock *sb = (struct superblock *)translate_address(baseaddr, 1);
-    printf("size:%d ninodes:%d nblocks%d\n", sb->size, sb->ninodes, sb->nblocks);
+    // use math.ceil ?
     char *address = (char *)translate_address(baseaddr, 3 + (sb->ninodes / IPB));
-    // address += 4;
     int i, m;
     for (i = 0; i < size; i++)
     {
@@ -201,7 +200,7 @@ int check_root_dir(const char *addr)
     return (de[0].inum == 1 && de[1].inum == 1);
 }
 
-int check_directory_format(const char *addr, int inode_num)
+int check_directory_format(const char *addr, const int inode_num)
 {
     struct dinode *inode_start = (struct dinode *)(addr + IBLOCK((uint)0) * BLOCK_SIZE);
     if (inode_start[inode_num].type == T_DIR)
@@ -209,33 +208,11 @@ int check_directory_format(const char *addr, int inode_num)
         struct dirent *de = (struct dirent *)translate_address(addr, inode_start[inode_num].addrs[0]);
         char str1[] = ".";
         char str2[] = "..";
-        return (de[0].inum == inode_num && (!strcmp(de[0].name, str1)) && (!strcmp(de[1].name, str2)));
-    }
-    return 1;
-}
-
-int check_duplicate_direct_addr(const struct dinode *dip, int nblocks)
-{
-    if (dip == NULL)
-    {
-        return 0;
-    }
-    int i = 0;
-    int isSeen[nblocks];
-    for (i = 0; i < nblocks; i++)
-    {
-        isSeen[i] = 0;
-    }
-    for (i = 0; i < NDIRECT + 1; i++)
-    {
-        if (dip->addrs[i] && dip->addrs[i] < nblocks)
+        if (!(de[0].inum == inode_num && (!strcmp(de[0].name, str1)) && (!strcmp(de[1].name, str2))))
         {
-            isSeen[dip->addrs[i]]++;
+            return 0;
         }
-    }
-    for (i = 0; i < nblocks; i++)
-    {
-        if (isSeen[i] > 1)
+        if (!(inode_start[de[1].inum].type == T_DIR))
         {
             return 0;
         }
@@ -243,15 +220,30 @@ int check_duplicate_direct_addr(const struct dinode *dip, int nblocks)
     return 1;
 }
 
-int check_duplicate_indirect_addr(const char *baseaddr, const struct dinode *dip, int nblocks)
+void get_direct_addr_refcounts(const struct dinode *dip, uint nblocks, uint refcounts[nblocks])
 {
-    int i = 0;
-    int isSeen[nblocks];
-    for (i = 0; i < nblocks; i++)
+    if (dip == NULL || dip->type == 0)
     {
-        isSeen[i] = 0;
+        return;
     }
-    if (dip->addrs[NDIRECT])
+    int i;
+    for (i = 0; i < NDIRECT + 1; i++)
+    {
+        if (dip->addrs[i] && dip->addrs[i] < nblocks)
+        {
+            refcounts[dip->addrs[i]]++;
+        }
+    }
+}
+
+void get_indirect_addr_refcounts(const char *baseaddr, const struct dinode *dip, uint nblocks, uint refcounts[nblocks])
+{
+    if (dip == NULL || dip->type == 0)
+    {
+        return;
+    }
+    int i;
+    if (dip->addrs[NDIRECT] > 0 && dip->addrs[NDIRECT] < nblocks)
     {
         uint *indirect_block = (uint *)translate_address(baseaddr, dip->addrs[NDIRECT]);
         int BLOCK_NUM_BYTES = 4;
@@ -259,18 +251,66 @@ int check_duplicate_indirect_addr(const char *baseaddr, const struct dinode *dip
         {
             if (indirect_block[i] && indirect_block[i] < nblocks)
             {
-                isSeen[indirect_block[i]]++;
+                refcounts[indirect_block[i]]++;
             }
         }
     }
+}
+
+int check_duplicate_addr(uint nblocks, uint refcounts[nblocks])
+{
+    int i;
     for (i = 0; i < nblocks; i++)
     {
-        if (isSeen[i] > 1)
+        if (refcounts[i] > 1)
         {
             return 0;
         }
     }
     return 1;
+}
+
+void get_direct_addr_inode_ref(const char *baseaddr, int blockno, int ninodes, uint refcounts[ninodes])
+{
+    if (blockno)
+    {
+        const struct dirent *de = (struct dirent *)translate_address(baseaddr, blockno);
+        int i;
+        for (i = 0; i < BLOCK_SIZE / sizeof(struct dirent *) && de->inum > 0; i++, de++)
+        {
+            if (de->inum < ninodes)
+            {
+                refcounts[de->inum]++;
+            }
+        }
+    }
+}
+
+void get_inode_refcounts(const char *baseaddr, int ninodes, uint refcounts[ninodes])
+{
+    const struct dinode *dip = (struct dinode *)(baseaddr + IBLOCK((uint)0) * BLOCK_SIZE);
+    int i;
+    for (i = 0; i < ninodes; i++)
+    {
+        if (dip[i].type == T_DIR)
+        {
+            int j;
+            for (j = 0; j < NDIRECT; j++)
+            {
+                get_direct_addr_inode_ref(baseaddr, dip[i].addrs[j], ninodes, refcounts);
+            }
+            if (dip[i].addrs[NDIRECT])
+            {
+                uint *indirect_block = (uint *)translate_address(baseaddr, dip[i].addrs[NDIRECT]);
+                int BLOCK_NUM_BYTES = 4;
+                int i;
+                for (i = 0; i < BLOCK_SIZE / BLOCK_NUM_BYTES; i++)
+                {
+                    get_direct_addr_inode_ref(baseaddr, indirect_block[i], ninodes, refcounts);
+                }
+            }
+        }
+    }
 }
 
 void dfs_directories_recursive(const char *baseaddr, const struct dinode *dip, const struct dirent *de, int *visit, uint *refcount);
@@ -315,14 +355,24 @@ void search_inode(const char *baseaddr, const struct dinode *dip, const struct d
 void dfs_directories_recursive(const char *baseaddr, const struct dinode *dip, const struct dirent *de, int *visit, uint *refcount)
 {
     refcount[de->inum]++;
-    // printf("de->name:%s ,de->inum:%d,refcount%d , vis %d\n",(char*)de->name, de->inum,refcount[de->inum],visit[de->inum]);
-    if (de->inum && !visit[de->inum])
+    // printf("name:%s ,inum:%d, refcount%d , vis %d\n", (char *)de->name, de->inum, refcount[de->inum], visit[de->inum]);
+    if (de->inum && !visit[de->inum] && dip[de->inum].type == T_DIR)
     {
         visit[de->inum] = 1;
-        if (dip[de->inum].type == T_DIR)
-        {
-            search_inode(baseaddr, dip, &dip[de->inum], visit, refcount);
-        }
+        search_inode(baseaddr, dip, &dip[de->inum], visit, refcount);
+        // if (dip[de->inum].type == T_DIR)
+        // {
+        //     search_inode(baseaddr, dip, &dip[de->inum], visit, refcount);
+        // }
+    }
+}
+
+void printcounts(uint arr[], int size)
+{
+    int i;
+    for (i = 0; i < size; i++)
+    {
+        printf("%d.", arr[i]);
     }
 }
 
@@ -335,13 +385,17 @@ void validate_inode_directory_references(const char *baseaddr)
     memset(visit, 0, sizeof(visit));
     memset(reference_counts, 0, sizeof(reference_counts));
     const struct dirent *de = (struct dirent *)translate_address(baseaddr, dip[ROOTINO].addrs[0]);
+
+    // get_inode_refcounts(baseaddr,sb->ninodes,reference_counts);
+
     // reference_counts[de->inum]--; // remove initiator count.
     dfs_directories_recursive(baseaddr, dip, de, visit, reference_counts);
+    // printcounts(reference_counts,sb->ninodes);
     int i;
     // check9
     for (i = ROOTINO; i < sb->ninodes; i++)
     {
-        if (dip[i].type != 0 && visit[i] == 0)
+        if (dip[i].type != 0 && reference_counts[i] == 0)
         {
             fprintf(stderr, "ERROR: inode marked use but not found in a directory.\n");
             exit(1);
@@ -350,7 +404,7 @@ void validate_inode_directory_references(const char *baseaddr)
     // check10
     for (i = ROOTINO; i < sb->ninodes; i++)
     {
-        if (dip[i].type == 0 && visit[i] != 0)
+        if (dip[i].type == 0 && reference_counts[i] != 0)
         {
             fprintf(stderr, "ERROR: inode referred to in directory but marked free.\n");
             exit(1);
@@ -359,9 +413,10 @@ void validate_inode_directory_references(const char *baseaddr)
     // check11
     for (i = ROOTINO; i < sb->ninodes; i++)
     {
-        if ((uint)dip[i].nlink != reference_counts[i])
+        // printf("i:%d,refcount:%d,nlink%d\n", i, reference_counts[i], dip[i].nlink);
+        if (dip[i].type == T_FILE && (uint)dip[i].nlink != reference_counts[i])
         {
-            // printf("i:%d,refcount:%d,nlink%d\n",i,reference_counts[i],dip[i].nlink);
+            printf("i:%d,refcount:%d,nlink%d\n", i, reference_counts[i], dip[i].nlink);
             fprintf(stderr, "ERROR: bad reference count for file.\n");
             exit(1);
         }
@@ -371,6 +426,7 @@ void validate_inode_directory_references(const char *baseaddr)
     {
         if (dip[i].type == T_DIR && reference_counts[i] > 1)
         {
+            printf("in: %d  rfc:%d  \n", i, reference_counts[i]);
             fprintf(stderr, "ERROR: directory appears more than once in file system.\n");
             exit(1);
         }
@@ -452,9 +508,12 @@ void validate_fs_img(char *fs_img_path)
         exit(1);
     }
     // check7
+    uint address_ref_counts[sb->nblocks];
+    memset(address_ref_counts, 0, sizeof(address_ref_counts));
     for (i = 1; i < sb->ninodes; i++)
     {
-        if (!check_duplicate_direct_addr(&dip[i], sb->nblocks))
+        get_direct_addr_refcounts(&dip[i], sb->nblocks, address_ref_counts);
+        if (!check_duplicate_addr(sb->nblocks, address_ref_counts))
         {
             fprintf(stderr, "ERROR: direct address used more than once.\n");
             close(fd);
@@ -464,7 +523,8 @@ void validate_fs_img(char *fs_img_path)
     // chech8
     for (i = 1; i < sb->ninodes; i++)
     {
-        if (!check_duplicate_indirect_addr(addr, &dip[i], sb->nblocks))
+        get_indirect_addr_refcounts(addr, &dip[i], sb->nblocks, address_ref_counts);
+        if (!check_duplicate_addr(sb->nblocks, address_ref_counts))
         {
             fprintf(stderr, "ERROR: indirect address used more than once.\n");
             close(fd);
