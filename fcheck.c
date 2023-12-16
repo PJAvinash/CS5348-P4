@@ -344,6 +344,7 @@ void validate_inode_directory_references(const char *baseaddr)
     }
 }
 
+
 void validate_fs_img(char *fs_img_path)
 {
     int fd = open(fs_img_path, O_RDONLY);
