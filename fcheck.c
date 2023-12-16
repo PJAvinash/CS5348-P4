@@ -127,9 +127,6 @@ int check_if_datablock_falsely_marked_in_use(const char *addr, int *databitmap)
     const struct dinode *dip = (struct dinode *)translate_address(addr,2);
     int inodeDataBitset[sb->nblocks];
     memset(inodeDataBitset, 0, sizeof(inodeDataBitset));
-    inodeDataBitset[0] = 1;
-    inodeDataBitset[1] = 1;
-    inodeDataBitset[2] = 1;
     const int datablockstarting = 4+ (sb->ninodes/IPB);
     int i, j, k;
     for(i = 0; i<datablockstarting ; i++){
