@@ -1,7 +1,7 @@
 import subprocess
 
 # Define test cases (replace these with your actual test cases)
-test_cases = {
+test_cases= {
     'addronce': 'ERROR: direct address used more than once.',
     'addronce2': 'ERROR: indirect address used more than once.',
     'badaddr': 'ERROR: bad direct address in inode.',
@@ -10,21 +10,21 @@ test_cases = {
     'badindir2': 'ERROR: bad indirect address in inode.',
     'badinode': 'ERROR: bad inode.',
     'badlarge': 'ERROR: indirect address used more than once.',
-    'badrefcnt': 'ERROR: inode marked use but not found in a directory.',
-    'badrefcnt2': 'ERROR: inode referred to in directory but marked free.',
+    'badrefcnt': 'ERROR: bad reference count for file.',
+    'badrefcnt2': 'ERROR: bad reference count for file.',
     'badroot': 'ERROR: root directory does not exist.',
-    'badroot2': 'ERROR: directory not properly formatted.',
+    'badroot2': 'ERROR: root directory does not exist.',
     'dironce': 'ERROR: directory appears more than once in file system.',
     'good': '',
     'goodlarge': '',
     'goodlink': '',
     'goodrefcnt': '',
     'goodrm': '',
-    'imrkfree': 'ERROR: address used by inode but marked free in bitmap.',
-    'imrkused': 'ERROR: inode marked used, but not referenced in a directory.',
-    'indirfree': 'ERROR: bitmap marks block in use but it is not in use.',
+    'imrkfree': 'ERROR: inode referred to in directory but marked free.',
+    'imrkused': 'ERROR: inode marked use but not found in a directory.',
+    'indirfree': 'ERROR: address used by inode but marked free in bitmap.',
     'mismatch': 'ERROR: directory not properly formatted.',
-    'mrkfree': 'ERROR: bitmap marks block in use but it is not in use.',
+    'mrkfree': 'ERROR: address used by inode but marked free in bitmap.',
     'mrkused': 'ERROR: bitmap marks block in use but it is not in use.'
 }
 
@@ -34,33 +34,31 @@ c_program_path = './fcheck'
 # Initialize counter for passed tests
 passed_tests = 0
 
-# Initialize counter for passed tests
-passed_tests = 0
-
 # Iterate through test cases
 for test_file, expected_error in test_cases.items():
     # Construct the command to run your C program with the test file
     command = [c_program_path, f'tests/{test_file}']
 
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
-        actual_error = result.stderr.strip()
+    # Run the command
+    result = subprocess.run(command, capture_output=True, text=True)
 
-        # Print the output for both successful and failed tests
-        print(f'Test: {test_file}')
-        print(f'Expected Error: {expected_error}')
-
-        # Compare actual and expected error messages
-        if actual_error == expected_error:
-            print('Test passed\n')
-            passed_tests += 1
-        else:
-            print(f'Test failed\nActual Error: {actual_error}\n')
-    except subprocess.CalledProcessError as e:
+    # Check if the program exited with a non-zero status code
+    if result.returncode == 0:
         # Print the output for failed tests
         print(f'Test: {test_file}')
         print(f'Expected Error: {expected_error}')
-        print(f'Error running test: {e.stderr}\n')
+        print(f'Error running test: {result.stderr.strip()}\n')
+
+    else:
+        # Check if the actual error matches the expected error after trimming whitespaces
+        actual_error = result.stderr.strip()
+        if expected_error.strip() == actual_error.strip():
+            print(f'Test passed for {test_file}\n')
+            passed_tests += 1
+        else:
+            # Print the output for failed tests with additional information
+            print(f'Test: {test_file}')
+            print(f'Expected Error: "{expected_error}" Actual Error: "{actual_error}"')
 
 # Print the total number of passed tests
-print(f'Total tests passed: {passed_tests}')
+print(f'Total tests passed: {passed_tests} in {len(test_cases.items())}')

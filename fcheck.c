@@ -125,10 +125,6 @@ int check_if_datablock_falsely_marked_in_use(const char *addr, const char *datab
 {
     struct superblock *sb = (struct superblock *)(addr + 1 * BLOCK_SIZE);
     const struct dinode *dip = (struct dinode *)(addr + IBLOCK((uint)0) * BLOCK_SIZE);
-    //uint bitmap_offset = BBLOCK(0, sb->ninodes) * BSIZE;
-    // const char *databitmap = addr + bitmap_offset;
-    //  const char *databitmap = (const char*)(translate_address(addr,BBLOCK(0, sb->ninodes)));//addr + BBLOCK(0, sb->ninodes) * BSIZE;
-    //  printf("::%d\n",*(int*)databitmap);
     int inodeDataBitset[sb->nblocks];
     memset(inodeDataBitset, 0, sizeof(inodeDataBitset));
     inodeDataBitset[0] = 1;
@@ -382,7 +378,7 @@ void validate_fs_img(char *fs_img_path)
     //check 2
     for (i = 1; i < sb->ninodes; i++)
     {
-        if (!check_inode_type(dip[i].type))
+        if (dip[i].type)
         {
             check_inode_addr_ranges(addr, &dip[i], sb->nblocks);
         }
