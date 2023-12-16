@@ -27,15 +27,10 @@ int check_inode_type(int input_type)
     return (input_type == 0 || input_type == T_DIR || input_type == T_FILE || input_type == T_DEV);
 }
 
-int isBitSet(const char array[], int index)
-{
-    return (array[(index >> 3)] & (1 << (index & 7))) != 0;
-}
-
 int check_direct_addr_ranges(const struct dinode *dip, uint nblocks)
 {
     int i;
-    for (i = 0; i < NDIRECT+1; i++)
+    for (i = 0; i < NDIRECT; i++)
     {
         if (dip->addrs[i] >= nblocks)
         {
@@ -50,8 +45,11 @@ int check_indirect_addr_ranges(const char *baseddr, const struct dinode *dip, ui
     {
         return 1;
     }
+    if (dip->addrs[NDIRECT] > nblocks)
+    {
+        return 0;
+    }
     uint *indirect_block = (uint *)translate_address(baseddr, dip->addrs[NDIRECT]);
-    ;
     int BLOCK_NUM_BYTES = 4;
     if (indirect_block)
     {
@@ -66,9 +64,13 @@ int check_indirect_addr_ranges(const char *baseddr, const struct dinode *dip, ui
     }
     return 1;
 }
+
 void check_inode_addr_ranges(const char *baseaddr, const struct dinode *dip, uint nblocks)
 {
-    if(!dip->type){return;}
+    if (!dip->type)
+    {
+        return;
+    }
     if (!check_direct_addr_ranges(dip, nblocks))
     {
         fprintf(stderr, "ERROR: bad direct address in inode.\n");
@@ -81,7 +83,7 @@ void check_inode_addr_ranges(const char *baseaddr, const struct dinode *dip, uin
     }
 }
 
-int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *dip, const char *databitmap)
+int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *dip, int *databitmap)
 {
     if (dip->type == 0)
     {
@@ -90,7 +92,7 @@ int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *di
     int i;
     for (i = 0; i < NDIRECT; i++)
     {
-        if ((dip->addrs[i] != 0) && (isBitSet(databitmap, dip->addrs[i]) == 0))
+        if ((dip->addrs[i] != 0) && databitmap[dip->addrs[i]] == 0)
         {
             return 0;
         }
@@ -101,7 +103,7 @@ int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *di
     }
     uint *indirect_block = (uint *)translate_address(baseaddr, dip->addrs[NDIRECT]);
     int BLOCK_NUM_BYTES = 4;
-    if (isBitSet(databitmap, dip->addrs[NDIRECT]) == 0)
+    if (databitmap[dip->addrs[NDIRECT]] == 0)
     {
         return 0;
     }
@@ -110,8 +112,7 @@ int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *di
         for (i = 0; i < BLOCK_SIZE / BLOCK_NUM_BYTES; i++)
         {
             uint ib = indirect_block[i];
-            // printf("ib:%d\n",ib);
-            if (ib && (isBitSet(databitmap, ib) == 0))
+            if (ib && databitmap[ib] == 0)
             {
                 return 0;
             }
@@ -120,19 +121,20 @@ int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *di
     return 1;
 }
 
-
-int check_if_datablock_falsely_marked_in_use(const char *addr, const char *databitmap)
+int check_if_datablock_falsely_marked_in_use(const char *addr, int *databitmap)
 {
-    struct superblock *sb = (struct superblock *)(addr + 1 * BLOCK_SIZE);
-    const struct dinode *dip = (struct dinode *)(addr + IBLOCK((uint)0) * BLOCK_SIZE);
+    struct superblock *sb = (struct superblock *)translate_address(addr,1);
+    const struct dinode *dip = (struct dinode *)translate_address(addr,2);
     int inodeDataBitset[sb->nblocks];
     memset(inodeDataBitset, 0, sizeof(inodeDataBitset));
     inodeDataBitset[0] = 1;
     inodeDataBitset[1] = 1;
     inodeDataBitset[2] = 1;
-    int i;
-    int j;
-    int k;
+    const int datablockstarting = 4+ (sb->ninodes/IPB);
+    int i, j, k;
+    for(i = 0; i<datablockstarting ; i++){
+        inodeDataBitset[i] = 1;
+    }
     int BLOCK_NUM_BYTES = 4;
     for (i = 1; i < sb->ninodes; i++)
     {
@@ -140,7 +142,8 @@ int check_if_datablock_falsely_marked_in_use(const char *addr, const char *datab
         {
             for (j = 0; j < NDIRECT + 1; j++)
             {
-                if(dip[i].addrs[j] <sb->nblocks){
+                if (dip[i].addrs[j] < sb->nblocks)
+                {
                     inodeDataBitset[dip[i].addrs[j]] = 1;
                 }
             }
@@ -150,22 +153,50 @@ int check_if_datablock_falsely_marked_in_use(const char *addr, const char *datab
                 uint *indirect_block = (uint *)translate_address(addr, dip[i].addrs[NDIRECT]);
                 for (k = 0; k < BLOCK_SIZE / BLOCK_NUM_BYTES; k++)
                 {
-                    inodeDataBitset[indirect_block[k]] = 1;
+                    if (indirect_block[k] < sb->nblocks)
+                    {
+                        inodeDataBitset[indirect_block[k]] = 1;
+                    }
                 }
             }
         }
     }
-
     for (i = 0; i < sb->nblocks; i++)
     {
-        if (isBitSet(databitmap, i) == 1 && inodeDataBitset[i] == 0)
+        if (databitmap[i] == 1 && inodeDataBitset[i] == 0)
         {
-            //printf("i:%d  %d  %d\n", i, databitmap[i], inodeDataBitset[i]);
-            //return 0;
+            return 0;
         }
     }
     return 1;
 }
+
+void loadbitmap(const char *baseaddr, uint size, int bitmap[size])
+{
+    struct superblock *sb = (struct superblock *)translate_address(baseaddr, 1);
+    printf("size:%d ninodes:%d nblocks%d\n",sb->size,sb->ninodes,sb->nblocks );
+    char* address = (char*)translate_address(baseaddr,3+(sb->ninodes/IPB)); //baseaddr + (((sb-> ninodes)/(IPB)) + 3)*BSIZE;
+    //address += 4;
+    int i, m;
+    for (i = 0; i < size; i++)
+    {
+        if (i < (sb->size) - (sb->nblocks))
+            bitmap[i] = 1;
+        else
+            bitmap[i] = 0;
+    }
+    for (i = 0; i < BPB; i++)
+    {
+        m = 1 << (i % 8);
+
+        if ((address[i / 8] & m) != 0)
+        {
+            bitmap[i] = 1;
+        }
+    }
+}
+
+
 
 int check_root_dir(const char *addr)
 {
@@ -189,13 +220,17 @@ int check_directory_format(const char *addr, int inode_num)
 
 int check_duplicate_direct_addr(const struct dinode *dip, int nblocks)
 {
+    if (dip == NULL)
+    {
+        return 0;
+    }
     int i = 0;
     int isSeen[nblocks];
     for (i = 0; i < nblocks; i++)
     {
         isSeen[i] = 0;
     }
-    for (i = 0; i < NDIRECT+1; i++)
+    for (i = 0; i < NDIRECT + 1; i++)
     {
         if (dip->addrs[i] && dip->addrs[i] < nblocks)
         {
@@ -226,7 +261,7 @@ int check_duplicate_indirect_addr(const char *baseaddr, const struct dinode *dip
         int BLOCK_NUM_BYTES = 4;
         for (i = 0; i < BLOCK_SIZE / BLOCK_NUM_BYTES; i++)
         {
-            if (indirect_block[i] && indirect_block[i]<nblocks)
+            if (indirect_block[i] && indirect_block[i] < nblocks)
             {
                 isSeen[indirect_block[i]]++;
             }
@@ -251,7 +286,7 @@ void search_direct(const char *baseaddr, const struct dinode *dip, const int blo
         while (de->inum)
         {
             // dont re-do dfs for parent's reference
-            if (strcmp(de->name, ".."))
+            if (strcmp(de->name, "..") && strcmp(de->name, "."))
             {
                 dfs_directories_recursive(baseaddr, dip, de, visit, refcount);
             }
@@ -284,7 +319,7 @@ void search_inode(const char *baseaddr, const struct dinode *dip, const struct d
 void dfs_directories_recursive(const char *baseaddr, const struct dinode *dip, const struct dirent *de, int *visit, uint *refcount)
 {
     refcount[de->inum]++;
-    // printf("de->inum:%d,refcount%d , vis %d\n",de->inum, refcount[de->inum],visit[de->inum]);
+    // printf("de->name:%s ,de->inum:%d,refcount%d , vis %d\n",(char*)de->name, de->inum,refcount[de->inum],visit[de->inum]);
     if (de->inum && !visit[de->inum])
     {
         visit[de->inum] = 1;
@@ -304,10 +339,10 @@ void validate_inode_directory_references(const char *baseaddr)
     memset(visit, 0, sizeof(visit));
     memset(reference_counts, 0, sizeof(reference_counts));
     const struct dirent *de = (struct dirent *)translate_address(baseaddr, dip[ROOTINO].addrs[0]);
-    reference_counts[de->inum]--; // remove initiator count.
+    // reference_counts[de->inum]--; // remove initiator count.
     dfs_directories_recursive(baseaddr, dip, de, visit, reference_counts);
     int i;
-    //check9
+    // check9
     for (i = ROOTINO; i < sb->ninodes; i++)
     {
         if (dip[i].type != 0 && visit[i] == 0)
@@ -316,7 +351,7 @@ void validate_inode_directory_references(const char *baseaddr)
             exit(1);
         }
     }
-    //check10
+    // check10
     for (i = ROOTINO; i < sb->ninodes; i++)
     {
         if (dip[i].type == 0 && visit[i] != 0)
@@ -325,6 +360,7 @@ void validate_inode_directory_references(const char *baseaddr)
             exit(1);
         }
     }
+    // check11
     for (i = ROOTINO; i < sb->ninodes; i++)
     {
         if ((uint)dip[i].nlink != reference_counts[i])
@@ -334,6 +370,7 @@ void validate_inode_directory_references(const char *baseaddr)
             exit(1);
         }
     }
+    // check12
     for (i = ROOTINO; i < sb->ninodes; i++)
     {
         if (dip[i].type == T_DIR && reference_counts[i] > 1)
@@ -343,6 +380,7 @@ void validate_inode_directory_references(const char *baseaddr)
         }
     }
 }
+
 
 
 void validate_fs_img(char *fs_img_path)
@@ -362,11 +400,12 @@ void validate_fs_img(char *fs_img_path)
         close(fd);
         exit(1);
     }
-    struct superblock *sb = (struct superblock *)(addr + 1 * BLOCK_SIZE);
+    struct superblock *sb = (struct superblock *)translate_address(addr,1);
     const struct dinode *dip = (struct dinode *)(addr + IBLOCK((uint)0) * BLOCK_SIZE);
-    const char *databitmap = (char *)(addr + BBLOCK(0, sb->ninodes) * BSIZE);
+    int databitmap[sb->size];
+    loadbitmap(addr, sb->size, databitmap);
+    // check 1
     int i;
-    //check 1
     for (i = 1; i < sb->ninodes; i++)
     {
         if (!check_inode_type(dip[i].type))
@@ -376,7 +415,7 @@ void validate_fs_img(char *fs_img_path)
             exit(1);
         }
     }
-    //check 2
+    // check 2
     for (i = 1; i < sb->ninodes; i++)
     {
         if (dip[i].type)
@@ -384,14 +423,14 @@ void validate_fs_img(char *fs_img_path)
             check_inode_addr_ranges(addr, &dip[i], sb->nblocks);
         }
     }
-    //check3
+    // check3
     if (!check_root_dir(addr))
     {
         fprintf(stderr, "ERROR: root directory does not exist.\n");
         close(fd);
         exit(1);
     }
-    //check4
+    // check4
     for (i = 1; i < sb->ninodes; i++)
     {
         if (!check_directory_format(addr, i))
@@ -401,7 +440,7 @@ void validate_fs_img(char *fs_img_path)
             exit(1);
         }
     }
-    //check5
+    // check5
     for (i = 1; i < sb->ninodes; i++)
     {
         if (!check_inode_bitmap_consistency(addr, &dip[i], databitmap))
@@ -411,14 +450,14 @@ void validate_fs_img(char *fs_img_path)
             exit(1);
         }
     }
-    //check6
+    // check6
     if (!check_if_datablock_falsely_marked_in_use(addr, databitmap))
     {
         fprintf(stderr, "ERROR: bitmap marks block in use but it is not in use.\n");
         close(fd);
         exit(1);
     }
-    //check7
+    // check7
     for (i = 1; i < sb->ninodes; i++)
     {
         if (!check_duplicate_direct_addr(&dip[i], sb->nblocks))
@@ -428,7 +467,7 @@ void validate_fs_img(char *fs_img_path)
             exit(1);
         }
     }
-    //chech8
+    // chech8
     for (i = 1; i < sb->ninodes; i++)
     {
         if (!check_duplicate_indirect_addr(addr, &dip[i], sb->nblocks))
@@ -440,10 +479,14 @@ void validate_fs_img(char *fs_img_path)
     }
     validate_inode_directory_references(addr);
     close(fd);
-    if (munmap((void*)addr, file_info.st_size) == -1) {
+    if (munmap((void *)addr, file_info.st_size) == -1)
+    {
         perror("Error unmapping memory");
     }
 }
+
+
+
 
 int main(int argc, char *argv[])
 {
