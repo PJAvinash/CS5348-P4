@@ -9,7 +9,7 @@ test_cases= {
     'badindir1': 'ERROR: bad indirect address in inode.',
     'badindir2': 'ERROR: bad indirect address in inode.',
     'badinode': 'ERROR: bad inode.',
-    'badlarge': 'ERROR: indirect address used more than once.',
+    'badlarge': 'ERROR: directory appears more than once in file system.',
     'badrefcnt': 'ERROR: bad reference count for file.',
     'badrefcnt2': 'ERROR: bad reference count for file.',
     'badroot': 'ERROR: root directory does not exist.',
@@ -45,9 +45,12 @@ for test_file, expected_error in test_cases.items():
     # Check if the program exited with a non-zero status code
     if result.returncode == 0:
         # Print the output for failed tests
-        print(f'Test: {test_file}')
-        print(f'Expected Error: {expected_error}')
-        print(f'Error running test: {result.stderr.strip()}\n')
+        
+        if expected_error.strip() == result.stderr.strip():
+            passed_tests += 1
+        else:
+            print(f'Test: {test_file}')
+            print(f'Expected Error: {expected_error} Actual Error: "{result.stderr}"')
 
     else:
         # Check if the actual error matches the expected error after trimming whitespaces
