@@ -123,13 +123,14 @@ int check_inode_bitmap_consistency(const char *baseaddr, const struct dinode *di
 
 int check_if_datablock_falsely_marked_in_use(const char *addr, int *databitmap)
 {
-    struct superblock *sb = (struct superblock *)translate_address(addr,1);
-    const struct dinode *dip = (struct dinode *)translate_address(addr,2);
+    struct superblock *sb = (struct superblock *)translate_address(addr, 1);
+    const struct dinode *dip = (struct dinode *)translate_address(addr, 2);
     int inodeDataBitset[sb->nblocks];
     memset(inodeDataBitset, 0, sizeof(inodeDataBitset));
-    const int datablockstarting = 4+ (sb->ninodes/IPB);
+    const int datablockstarting = 4 + (sb->ninodes / IPB);
     int i, j, k;
-    for(i = 0; i<datablockstarting ; i++){
+    for (i = 0; i < datablockstarting; i++)
+    {
         inodeDataBitset[i] = 1;
     }
     int BLOCK_NUM_BYTES = 4;
@@ -171,9 +172,9 @@ int check_if_datablock_falsely_marked_in_use(const char *addr, int *databitmap)
 void loadbitmap(const char *baseaddr, uint size, int bitmap[size])
 {
     struct superblock *sb = (struct superblock *)translate_address(baseaddr, 1);
-    printf("size:%d ninodes:%d nblocks%d\n",sb->size,sb->ninodes,sb->nblocks );
-    char* address = (char*)translate_address(baseaddr,3+(sb->ninodes/IPB)); //baseaddr + (((sb-> ninodes)/(IPB)) + 3)*BSIZE;
-    //address += 4;
+    printf("size:%d ninodes:%d nblocks%d\n", sb->size, sb->ninodes, sb->nblocks);
+    char *address = (char *)translate_address(baseaddr, 3 + (sb->ninodes / IPB));
+    // address += 4;
     int i, m;
     for (i = 0; i < size; i++)
     {
@@ -192,8 +193,6 @@ void loadbitmap(const char *baseaddr, uint size, int bitmap[size])
         }
     }
 }
-
-
 
 int check_root_dir(const char *addr)
 {
@@ -378,8 +377,6 @@ void validate_inode_directory_references(const char *baseaddr)
     }
 }
 
-
-
 void validate_fs_img(char *fs_img_path)
 {
     int fd = open(fs_img_path, O_RDONLY);
@@ -397,7 +394,7 @@ void validate_fs_img(char *fs_img_path)
         close(fd);
         exit(1);
     }
-    struct superblock *sb = (struct superblock *)translate_address(addr,1);
+    struct superblock *sb = (struct superblock *)translate_address(addr, 1);
     const struct dinode *dip = (struct dinode *)(addr + IBLOCK((uint)0) * BLOCK_SIZE);
     int databitmap[sb->size];
     loadbitmap(addr, sb->size, databitmap);
@@ -481,9 +478,6 @@ void validate_fs_img(char *fs_img_path)
         perror("Error unmapping memory");
     }
 }
-
-
-
 
 int main(int argc, char *argv[])
 {
