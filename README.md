@@ -1,4 +1,4 @@
-XV6 File System checking
+# XV6 File System checking
 
 When a problem is detected, print the error message, as shown below in bold, to standard error and exit immediately with exit code 1 (i.e., call exit(1)).
 1. Each inode is either unallocated or one of the valid types (T_FILE, T_DIR, T_DEV). If not, print ERROR: bad inode.
